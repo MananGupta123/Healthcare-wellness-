@@ -1,0 +1,622 @@
+# 🏥 Healthcare Wellness & Preventive Care Portal
+### HCLTech Hackathon — Team Implementation Plan
+
+> **Stack:** React + Vite (Frontend) · Node.js + Express (Backend) · MongoDB (Database) · JWT (Auth)
+> **Goal:** Deliver an MVP demonstrating security, personalization, and healthcare compliance.
+
+---
+
+## 📁 Project Structure (Agreed Upon by All Members)
+
+```
+Healthcare-wellness-/
+├── backend/
+│   ├── src/
+│   │   ├── models/         → MongoDB schemas (User, Goal, Reminder, AuditLog)
+│   │   ├── routes/         → API endpoints (auth, patients, providers, public)
+│   │   ├── middleware/     → JWT guard, role checker, audit logger, error handler
+│   │   └── server.js       → Express app entry point
+│   ├── .env                → Environment variables (NEVER commit this)
+│   ├── .env.example        → Template for env vars (commit this)
+│   └── package.json
+├── frontend/
+│   ├── src/
+│   │   ├── pages/          → One file per page/screen
+│   │   ├── components/     → Shared UI (Navbar, Card, Button, ProgressBar, etc.)
+│   │   ├── context/        → AuthContext (global logged-in state)
+│   │   ├── api/            → axiosClient.js (auto-attaches JWT headers)
+│   │   └── App.jsx         → Routes setup
+│   └── package.json
+└── .github/
+    └── workflows/
+        └── ci.yml          → GitHub Actions CI/CD pipeline
+```
+
+---
+
+## 🗄️ MongoDB Schema Design (Member 2 Implements — All Members Must Know)
+
+> MongoDB stores data as **documents** (JSON-like objects) inside **collections** (equivalent to SQL tables). We have 4 collections.
+
+---
+
+### Collection 1: `users`
+Stores both **patients** and **healthcare providers** (differentiated by the `role` field).
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `_id` | ObjectId | Auto | MongoDB auto-generated unique ID |
+| `name` | String | ✅ | Max 100 chars |
+| `email` | String | ✅ | Unique, lowercase, validated format |
+| `password` | String | ✅ | Bcrypt hashed, **never returned in API responses** |
+| `role` | String | ✅ | Enum: `"patient"` or `"provider"` |
+| `dateOfBirth` | Date | ❌ | Patient only |
+| `gender` | String | ❌ | Enum: `"male"`, `"female"`, `"other"` |
+| `phone` | String | ❌ | Max 20 chars |
+| `address` | String | ❌ | Max 200 chars |
+| `allergies` | String[ ] | ❌ | e.g. `["Penicillin", "Pollen"]` |
+| `currentMedications` | String[ ] | ❌ | e.g. `["Metformin 500mg"]` |
+| `bloodType` | String | ❌ | e.g. `"O+"` |
+| `emergencyContact` | Object | ❌ | `{ name, phone, relationship }` |
+| `specialization` | String | ❌ | Provider only (e.g. `"Cardiology"`) |
+| `licenseNumber` | String | ❌ | Provider only |
+| `consentGiven` | Boolean | ✅ | Must be `true` to register (HIPAA) |
+| `consentDate` | Date | ✅ | Timestamp when consent was given |
+| `isActive` | Boolean | ✅ | Default `true`; set `false` to deactivate |
+| `lastLogin` | Date | ❌ | Updated on every login |
+| `createdAt` | Date | Auto | Mongoose timestamps |
+| `updatedAt` | Date | Auto | Mongoose timestamps |
+
+**Sample Document:**
+```json
+{
+  "_id": "664a1f...",
+  "name": "David Singh",
+  "email": "david@example.com",
+  "password": "$2b$12$hashedpassword...",
+  "role": "patient",
+  "dateOfBirth": "1990-05-14",
+  "allergies": ["Penicillin"],
+  "currentMedications": ["Metformin 500mg"],
+  "bloodType": "O+",
+  "consentGiven": true,
+  "consentDate": "2025-04-15T08:30:00Z",
+  "isActive": true,
+  "createdAt": "2025-04-15T08:30:00Z"
+}
+```
+
+**Indexes:**
+```
+email → unique index  (fast login lookup)
+role  → index         (fast provider/patient filtering)
+```
+
+---
+
+### Collection 2: `goals`
+Tracks daily wellness metrics logged by a patient. One document = one metric entry for one day.
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `_id` | ObjectId | Auto | |
+| `userId` | ObjectId (ref: User) | ✅ | Which patient logged this |
+| `type` | String | ✅ | Enum: `"steps"`, `"water"`, `"sleep"`, `"calories"`, `"active_time"` |
+| `value` | Number | ✅ | The logged amount (e.g. `3620` steps) |
+| `target` | Number | ❌ | The daily goal (e.g. `8000` steps) |
+| `unit` | String | ❌ | e.g. `"steps"`, `"ml"`, `"hours"`, `"kcal"`, `"min"` |
+| `date` | Date | ✅ | Midnight of that day (e.g. `2025-04-15T00:00:00Z`) |
+| `notes` | String | ❌ | Optional note from patient |
+| `createdAt` | Date | Auto | |
+| `updatedAt` | Date | Auto | |
+
+**Sample Document:**
+```json
+{
+  "_id": "664b2a...",
+  "userId": "664a1f...",
+  "type": "steps",
+  "value": 3620,
+  "target": 8000,
+  "unit": "steps",
+  "date": "2025-04-15T00:00:00Z",
+  "notes": "Went for a morning walk"
+}
+```
+
+**Indexes:**
+```
+{ userId, date }       → compound index (get all of a user's goals for a specific day)
+{ userId, type, date } → compound index (get one type e.g. only "steps" for a user)
+```
+
+> [!NOTE]
+> Goals are **upserted** (insert or update) by `userId + type + date`. So logging steps twice in a day **updates** the existing entry rather than creating a duplicate.
+
+---
+
+### Collection 3: `reminders`
+Stores preventive care appointments and health reminders for patients.
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `_id` | ObjectId | Auto | |
+| `userId` | ObjectId (ref: User) | ✅ | Patient this reminder belongs to |
+| `title` | String | ✅ | e.g. `"Annual Blood Test"` |
+| `description` | String | ❌ | Extra detail |
+| `type` | String | ❌ | Enum: `"checkup"`, `"medication"`, `"vaccination"`, `"lab_test"`, `"custom"` |
+| `dueDate` | Date | ✅ | When the reminder is due |
+| `status` | String | ✅ | Enum: `"upcoming"`, `"met"`, `"missed"` — Default: `"upcoming"` |
+| `createdBy` | ObjectId (ref: User) | ❌ | Could be patient or provider |
+| `createdAt` | Date | Auto | |
+| `updatedAt` | Date | Auto | |
+
+**Sample Document:**
+```json
+{
+  "_id": "664c3b...",
+  "userId": "664a1f...",
+  "title": "Annual Blood Test",
+  "type": "lab_test",
+  "dueDate": "2025-04-22T09:00:00Z",
+  "status": "upcoming",
+  "createdBy": "664a1f..."
+}
+```
+
+**Status Logic (computed at read time):**
+```
+if status === "upcoming" AND dueDate < now  →  display as "missed"
+if status === "met"                         →  display as "met" (green)
+if status === "upcoming" AND dueDate > now  →  display as "upcoming" (blue)
+```
+
+**Indexes:**
+```
+{ userId, dueDate } → compound index (get reminders sorted by date for a user)
+```
+
+---
+
+### Collection 4: `auditlogs` *(HIPAA Compliance)*
+Automatically records every sensitive write action (who did what, when, from where).
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `_id` | ObjectId | Auto | |
+| `userId` | ObjectId (ref: User) | ❌ | `null` for unauthenticated actions |
+| `action` | String | ✅ | e.g. `"POST /api/patients/me"` |
+| `resource` | String | ❌ | The endpoint path |
+| `ip` | String | ❌ | Client IP address |
+| `userAgent` | String | ❌ | Browser/client info |
+| `statusCode` | Number | ❌ | HTTP response code (200, 401, etc.) |
+| `createdAt` | Date | Auto | |
+
+**Sample Document:**
+```json
+{
+  "_id": "664d4c...",
+  "userId": "664a1f...",
+  "action": "PUT /api/patients/me",
+  "resource": "/api/patients/me",
+  "ip": "192.168.1.5",
+  "userAgent": "Mozilla/5.0...",
+  "statusCode": 200,
+  "createdAt": "2025-04-15T10:45:00Z"
+}
+```
+
+**Indexes:**
+```
+{ userId, createdAt } → index (see all actions by a user in time order)
+```
+
+---
+
+### Relationships Between Collections
+
+```
+users (1) ──────── (many) goals
+  │                         ↑ userId references users._id
+  │
+users (1) ──────── (many) reminders
+  │                         ↑ userId references users._id
+  │
+users (1) ──────── (many) auditlogs
+                            ↑ userId references users._id
+```
+
+> [!NOTE]
+> MongoDB does **not enforce** foreign key relationships automatically (unlike SQL). Mongoose handles this via `ref` and `.populate()` calls in the code.
+
+---
+
+## 🔗 Git Branching Strategy (IMPORTANT — All Members Follow This)
+
+| Member | Role | Branch Name | PR Target |
+|--------|------|-------------|-----------|
+| Member 1 | Full Frontend | `feature/frontend-all` | `main` |
+| Member 2 | Backend Core (Auth + Patient APIs) | `feature/backend-core` | `main` |
+| Member 3 | Backend Part 2 (Provider APIs + CI/CD) | `feature/backend-provider` | `main` |
+
+```bash
+# Every member starts with:
+git checkout -b feature/your-branch-name
+git push origin feature/your-branch-name
+# → When done, open a Pull Request to main
+```
+
+> [!IMPORTANT]
+> **Never commit `backend/.env`** — only commit [.env.example](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/.env.example)
+> Always pull latest before starting work: `git pull origin main`
+
+---
+
+## ⚙️ Shared Setup — Every Member Does This First
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/MananGupta123/Healthcare-wellness-.git
+cd Healthcare-wellness-
+
+# 2. Backend setup
+cd backend
+npm install
+cp .env.example .env
+# → Fill in MONGO_URI and JWT_SECRET (get from team lead)
+npm run dev     # Runs on http://localhost:5000
+
+# 3. Frontend setup (open a second terminal)
+cd ../frontend
+npm install
+npm run dev     # Runs on http://localhost:5173
+```
+
+---
+
+## 👤 Member 1 — Full Frontend (All Pages)
+
+**Branch:** `feature/frontend-all` | **Runs:** `cd frontend && npm run dev`
+
+> You own the **entire frontend**. This includes patient pages, provider pages, and the public page. Member 2 and 3 handle the backend/API.
+
+### All Pages to Build
+
+| Page | File | Route | Who Sees It |
+|------|------|-------|-------------|
+| Register | `pages/Register.jsx` | `/register` | Everyone |
+| Login | `pages/Login.jsx` | `/login` | Everyone |
+| Patient Dashboard | `pages/Dashboard.jsx` | `/dashboard` | Patient only |
+| Goal Tracker | `pages/GoalTracker.jsx` | `/goals` | Patient only |
+| Profile | `pages/Profile.jsx` | `/profile` | Patient only |
+| Provider Dashboard | `pages/ProviderDashboard.jsx` | `/provider` | Provider only |
+| Patient Detail | `pages/PatientDetail.jsx` | `/provider/patient/:id` | Provider only |
+| Public Health Info | `pages/PublicHealth.jsx` | `/public` | Everyone |
+
+### Patient Dashboard Layout (Match the Mock Design from PDF)
+
+```
+┌─────────────────────────────────────────────────┐
+│  Sidebar: Health | Dashboard | Goals | Profile   │
+│─────────────────────────────────────────────────│
+│  Welcome, [Name]                                │
+│                                                 │
+│  ┌── Wellness Goals ─────────────────┐          │
+│  │  Steps:      3620 / 8000  ████░░ │          │
+│  │  Active Time: 56 min      █████░ │          │
+│  │  Sleep:      6h 30m       ████░░ │          │
+│  └────────────────────────────────────┘          │
+│                                                 │
+│  ┌── Preventive Reminders ────────────┐          │
+│  │  📅 Annual blood test — 22 Apr 2025│          │
+│  └────────────────────────────────────┘          │
+│                                                 │
+│  💡 Health Tip of the Day                       │
+└─────────────────────────────────────────────────┘
+```
+
+### Provider Dashboard Layout
+
+```
+┌──────────────────────────────────────────────────┐
+│  Provider Dashboard — Dr. [Name]                 │
+│──────────────────────────────────────────────────│
+│  My Patients                                     │
+│  ┌────────────────────────────────────────────┐  │
+│  │ 🟢  John Doe       Goal Met               │  │
+│  │ 🔴  Sarah Khan     Missed Preventive Check │  │
+│  │ 🟢  Mike Rao       Goal Met               │  │
+│  └────────────────────────────────────────────┘  │
+│  [Click row → /provider/patient/:id]             │
+└──────────────────────────────────────────────────┘
+```
+
+### Key Files to Create
+
+**`src/context/AuthContext.jsx`** — Global auth state
+```js
+const login = (token, user) => {
+  localStorage.setItem('token', token);
+  localStorage.setItem('user', JSON.stringify(user));
+  setCurrentUser(user);
+};
+const logout = () => {
+  localStorage.clear();
+  setCurrentUser(null);
+};
+```
+
+**`src/api/axiosClient.js`** — Auto-attach JWT to every request
+```js
+import axios from 'axios';
+const client = axios.create({ baseURL: 'http://localhost:5000/api' });
+client.interceptors.request.use(config => {
+  const token = localStorage.getItem('token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+export default client;
+```
+
+**`src/components/ProtectedRoute.jsx`** — Guard pages from non-logged-in users
+```jsx
+// If not logged in → redirect to /login
+// If wrong role (e.g. provider trying to access /dashboard) → redirect to /unauthorized
+```
+
+### All API Calls You Will Make
+
+| Action | Method | URL |
+|--------|--------|-----|
+| Register | POST | `/auth/register` |
+| Login | POST | `/auth/login` |
+| Get patient profile | GET | `/patients/me` |
+| Update patient profile | PUT | `/patients/me` |
+| Get today's goals | GET | `/patients/goals?date=TODAY` |
+| Log a goal | POST | `/patients/goals` |
+| Get reminders | GET | `/patients/reminders` |
+| Add reminder | POST | `/patients/reminders` |
+| Get all patients (provider) | GET | `/provider/patients` |
+| Get patient detail (provider) | GET | `/provider/patients/:id` |
+| Get public health info | GET | `/public/health-info` |
+
+### Register Page — Required Fields
+```
+Full Name        → text input
+Email            → email input
+Password         → min 8 chars, 1 uppercase, 1 number
+Confirm Password → must match
+Role             → dropdown: "I am a Patient" / "I am a Healthcare Provider"
+☐ I consent to data usage as per the privacy policy  ← REQUIRED checkbox
+```
+
+### Public Health Info Page — Content
+- No login required
+- Sections: General Health Tips | Preventive Care Schedule | Privacy Policy | Your Data Rights
+
+### Design Guidelines
+- Dark theme: background `#0f1117`, card `#1a1f2e`, accent blue `#4f8ef7`
+- Font: Google Fonts `Inter` (400, 500, 600)
+- Animated progress bars for goals (fill % based on value/target)
+- Reminder/compliance badges: 🟢 Met | 🔴 Missed | 🔵 Upcoming
+
+---
+
+## 👤 Member 2 — Backend Core (Auth + Patient APIs + Database Setup)
+
+**Branch:** `feature/backend-core` | **Runs:** `cd backend && npm run dev`
+
+> You own the **foundation** of the backend. Member 3 builds on top of what you set up. Finish the server setup and models first so Member 3 can start their routes.
+
+### Your Responsibilities
+
+#### 1. Project Setup (`backend/`)
+- Initialize Node.js project, install all packages:
+  `express mongoose bcryptjs jsonwebtoken express-validator helmet cors morgan dotenv express-rate-limit`
+- Create [src/server.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/server.js) — Express app with middleware (helmet, cors, morgan, rate limiter)
+- Create `.env` and [.env.example](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/.env.example) files
+- Connect to MongoDB Atlas
+
+#### 2. All 4 MongoDB Models (`src/models/`)
+- [User.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/models/User.js) — patients + providers, bcrypt hash on save
+- [Goal.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/models/Goal.js) — daily wellness logs
+- [Reminder.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/models/Reminder.js) — preventive care reminders
+- [AuditLog.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/models/AuditLog.js) — HIPAA action logging
+
+#### 3. All Middleware (`src/middleware/`)
+- [auth.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/routes/auth.js) → [protect()](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/middleware/auth.js#4-35) (verify JWT) + [authorize('role')](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/middleware/auth.js#36-47) (check role)
+- [auditLogger.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/middleware/auditLogger.js) → auto-log every sensitive write to `auditlogs` collection
+- [errorHandler.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/middleware/errorHandler.js) → consistent `{ error: "message" }` responses
+
+#### 4. Auth Routes ([src/routes/auth.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/routes/auth.js))
+| Method | Endpoint | Body | Response |
+|--------|----------|------|----------|
+| POST | `/api/auth/register` | `{name, email, password, role, consentGiven}` | `{token, user}` |
+| POST | `/api/auth/login` | `{email, password}` | `{token, user}` |
+| GET | `/api/auth/me` | JWT header | `{user}` |
+
+#### 5. Patient Routes ([src/routes/patients.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/routes/patients.js)) — JWT + role=patient
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/patients/me` | Get own profile |
+| PUT | `/api/patients/me` | Update profile (allergies, medications, etc.) |
+| GET | `/api/patients/goals` | Get goals, filter by `?date=` and `?type=` |
+| POST | `/api/patients/goals` | Log a goal (upsert by userId + type + date) |
+| GET | `/api/patients/reminders` | All reminders sorted by dueDate |
+| POST | `/api/patients/reminders` | Add a reminder |
+| PUT | `/api/patients/reminders/:id/status` | Mark as `met` or `missed` |
+
+### Security Checklist (Your Responsibility)
+
+- [ ] Passwords hashed with **bcrypt** (salt rounds = 12)
+- [ ] JWT expires in **7 days**
+- [ ] Rate limiter on `/api/auth`: max **20 requests / 15 min**
+- [ ] Global rate limiter: **100 requests / 15 min**
+- [ ] `helmet()` for HTTP security headers
+- [ ] Password field `select: false` (never in API response)
+- [ ] Input validation on all routes via `express-validator`
+- [ ] CORS restricted to `CLIENT_URL` only
+
+### `.env` File — Create This & Share Values with Team
+```env
+PORT=5000
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster0.mongodb.net/healthcare_wellness
+JWT_SECRET=<minimum_32_character_random_string>
+JWT_EXPIRE=7d
+CLIENT_URL=http://localhost:5173
+NODE_ENV=development
+```
+
+> [!TIP]
+> Free MongoDB: [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas) → Create free M0 cluster → Copy connection string → Whitelist IP `0.0.0.0/0` for dev.
+
+> [!IMPORTANT]
+> Share `MONGO_URI` and `JWT_SECRET` with Member 3 via chat (NOT via Git). Also share the models folder once done so Member 3 can import them.
+
+---
+
+## 👤 Member 3 — Backend Part 2 (Provider APIs + Public Route + CI/CD)
+
+**Branch:** `feature/backend-provider` | **Runs:** `cd backend && npm run dev`
+
+> You build on top of what Member 2 sets up. Import their models and middleware directly. Your job is the provider-facing API, the public health info endpoint, and the CI/CD pipeline.
+
+### Your Responsibilities
+
+#### 1. Provider Routes (`src/routes/providers.js`) — JWT + role=provider
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/provider/patients` | List all patients with compliance badge |
+| GET | `/api/provider/patients/:id` | One patient's full goals + reminders |
+| GET | `/api/provider/patients/:id/compliance` | Summary: "Goal Met" or "Missed Preventive Checkup" |
+
+**Compliance Logic:**
+```js
+// Check each patient's reminders:
+// Any reminder.status === 'missed'  → badge: "Missed Preventive Checkup" (red)
+// All recent reminders  === 'met'   → badge: "Goal Met" (green)
+// Otherwise                         → badge: "Upcoming" (blue)
+```
+
+#### 2. Public Route (`src/routes/public.js`) — No auth required
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/public/health-info` | Returns static JSON: health tips + privacy policy |
+
+**Sample Response:**
+```json
+{
+  "healthTips": ["Drink 8 glasses of water daily", "Walk 10,000 steps a day"],
+  "preventiveCareSchedule": ["Annual blood test (18+)", "Blood pressure check (every 2 years)"],
+  "privacyPolicy": "Your data is encrypted and never shared without consent."
+}
+```
+
+#### 3. Wire Routes into [server.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/server.js)
+After Member 2 finishes [server.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/server.js), add:
+```js
+const providerRoutes = require('./routes/providers');
+const publicRoutes = require('./routes/public');
+app.use('/api/provider', providerRoutes);
+app.use('/api/public', publicRoutes);
+```
+
+#### 4. CI/CD Pipeline — `.github/workflows/ci.yml`
+```yaml
+name: Healthcare Portal CI
+
+on:
+  push:
+    branches: [main, "feature/*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: cd backend && npm ci
+      - run: cd backend && npm test
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+
+  build-frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: cd frontend && npm ci
+      - run: cd frontend && npm run build
+```
+
+**Add GitHub Secrets** (repo Settings → Secrets → Actions):
+- `MONGO_URI` — get from Member 2
+- `JWT_SECRET` — get from Member 2
+
+> [!IMPORTANT]
+> Wait for Member 2 to finish setting up [server.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/server.js), all models, and middleware before you start writing routes. You will import `User`, `Goal`, `Reminder` models from Member 2's code.
+
+---
+
+## ✅ MVP Deliverables Checklist (Shared — Update as You Go)
+
+| # | Deliverable | Owner | Done? |
+|---|-------------|-------|-------|
+| 1 | Backend server setup + MongoDB connection | M2 | ☐ |
+| 2 | All 4 MongoDB models (User, Goal, Reminder, AuditLog) | M2 | ☐ |
+| 3 | All middleware (auth, audit logger, error handler) | M2 | ☐ |
+| 4 | Auth API (register, login) | M2 | ☐ |
+| 5 | Patient API (profile, goals, reminders) | M2 | ☐ |
+| 6 | Provider API (patient list + compliance) | M3 | ☐ |
+| 7 | Public health info API endpoint | M3 | ☐ |
+| 8 | CI/CD GitHub Actions pipeline | M3 | ☐ |
+| 9 | Login + Register pages (with consent checkbox) | M1 | ☐ |
+| 10 | Patient Dashboard (goals, reminders, health tip) | M1 | ☐ |
+| 11 | Goal Tracker page | M1 | ☐ |
+| 12 | Profile management page | M1 | ☐ |
+| 13 | Provider Dashboard + Patient Detail page | M1 | ☐ |
+| 14 | Public Health Info page | M1 | ☐ |
+
+---
+
+## 🎯 How the Plan Maps to Evaluation Criteria
+
+| Judges Look For | How We Cover It |
+|-----------------|-----------------|
+| Security & Privacy | bcrypt passwords, JWT auth, rate limiting, HIPAA audit logs |
+| Personalization | Profile fields, custom goal targets, health tip, name on dashboard |
+| Healthcare data protection | Consent checkbox on register, encrypted passwords, env vars |
+| Responsive design | Mobile-first CSS, collapsible sidebar |
+| CI/CD pipeline | GitHub Actions runs on every push |
+| Role-based access control | JWT middleware checks `patient` vs `provider` on every route |
+| Architecture clarity | 3 separate layers: frontend / backend / database |
+
+---
+
+## 📞 Team Coordination
+
+### Order of Work (Who Depends on Whom)
+
+```
+Member 2 finishes → models + middleware
+        ↓
+Member 3 can start → provider routes (imports M2's models)
+Member 1 can start → frontend pages (uses mock data until APIs are ready)
+        ↓
+Both backend members done → Member 1 wires real API calls in
+        ↓
+All merge to main → CI/CD kicks off
+```
+
+### Communication Rules
+- **Member 2** shares `.env` values with team via WhatsApp/chat (NOT Git)
+- **Member 2** shares exact API response shapes early so M1 can build UI without waiting
+- **Member 3** should coordinate with M2 before modifying [server.js](file:///d:/Desktop/healthcare%20project/Healthcare-wellness-/backend/src/server.js)
+- Daily check-in: what's done ✅ | what's blocked ❌ | what's next ➡️

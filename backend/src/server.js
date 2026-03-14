@@ -8,6 +8,8 @@ require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
 const patientRoutes = require('./routes/patients');
+const providerRoutes = require('./routes/providers');
+const publicRoutes = require('./routes/public');
 const { auditLogger } = require('./middleware/auditLogger');
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -38,6 +40,8 @@ app.use(auditLogger);
 // ── Routes ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/patients', patientRoutes);
+app.use('/api/provider', providerRoutes);
+app.use('/api/public', publicRoutes);
 
 // ── Health Check ────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -48,19 +52,23 @@ app.get('/api/health', (req, res) => {
 app.use(errorHandler);
 
 // ── Database Connection + Server Start ──────────────────────────────────────
+// Skip DB connection in test environment — Jest imports `app` directly via supertest.
+// MONGO_URI is injected as a GitHub Actions secret in CI so real tests pass there.
 const PORT = process.env.PORT || 5000;
 
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log('✅ MongoDB connected successfully');
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on http://localhost:${PORT}`);
+if (process.env.NODE_ENV !== 'test') {
+  mongoose
+    .connect(process.env.MONGO_URI)
+    .then(() => {
+      console.log('✅ MongoDB connected successfully');
+      app.listen(PORT, () => {
+        console.log(`🚀 Server running on http://localhost:${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('❌ MongoDB connection failed:', err.message);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('❌ MongoDB connection failed:', err.message);
-    process.exit(1);
-  });
+}
 
 module.exports = app;
