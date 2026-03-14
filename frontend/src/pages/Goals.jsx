@@ -136,11 +136,11 @@ export const Goals = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '500' }}>Value</label>
-                  <input type="number" min="0" step="any" value={logForm.value} onChange={(e) => setLogForm({ ...logForm, value: e.target.value })} className="input-field" style={{ marginBottom: 0 }} placeholder="e.g. 3620" required />
+                  <input type="number" min="0" step="any" maxLength="5" value={logForm.value} onChange={(e) => { if (e.target.value.length <= 5) setLogForm({ ...logForm, value: e.target.value }); }} className="input-field" style={{ marginBottom: 0 }} placeholder="e.g. 3620" required />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '500' }}>Target (optional)</label>
-                  <input type="number" min="0" step="any" value={logForm.target} onChange={(e) => setLogForm({ ...logForm, target: e.target.value })} className="input-field" style={{ marginBottom: 0 }} placeholder="e.g. 6000" />
+                  <input type="number" min="0" step="any" maxLength="5" value={logForm.target} onChange={(e) => { if (e.target.value.length <= 5) setLogForm({ ...logForm, target: e.target.value }); }} className="input-field" style={{ marginBottom: 0 }} placeholder="e.g. 6000" />
                 </div>
                 <Button type="submit" fullWidth isLoading={logLoading} style={{ marginTop: '8px' }}>Save</Button>
               </form>
