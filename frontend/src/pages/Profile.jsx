@@ -128,7 +128,19 @@ export const Profile = () => {
                </div>
                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px' }}>
                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500' }}>Blood Type</label>
-                 {isEditing ? <input name="bloodType" value={profileData.bloodType} onChange={handleChange} className="input-field" style={{marginBottom: 0}} /> : <div style={{ display: 'inline-block', background: 'rgba(239,68,68,0.15)', color: '#ef4444', padding: '4px 12px', borderRadius: '16px', fontWeight: '600', width: 'fit-content' }}>{profileData.bloodType || 'Not set'}</div>}
+                 {isEditing ? (
+                   <select name="bloodType" value={profileData.bloodType} onChange={handleChange} className="input-field" style={{marginBottom: 0}}>
+                     <option value="">Select Blood Group</option>
+                     <option value="A+">A+</option>
+                     <option value="A-">A-</option>
+                     <option value="B+">B+</option>
+                     <option value="B-">B-</option>
+                     <option value="AB+">AB+</option>
+                     <option value="AB-">AB-</option>
+                     <option value="O+">O+</option>
+                     <option value="O-">O-</option>
+                   </select>
+                 ) : <div style={{ display: 'inline-block', background: 'rgba(239,68,68,0.15)', color: '#ef4444', padding: '4px 12px', borderRadius: '16px', fontWeight: '600', width: 'fit-content' }}>{profileData.bloodType || 'Not set'}</div>}
                </div>
                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', marginTop: '8px' }}>
                  <label style={{ fontSize: '14px', color: '#fff', fontWeight: '500' }}>Known Allergies</label>
