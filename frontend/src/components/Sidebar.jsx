@@ -1,11 +1,14 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { LayoutDashboard, User, Target, MessageSquare, LogOut, Activity } from 'lucide-react';
 
 export const Sidebar = () => {
   const navigate = useNavigate();
+  const { logout } = useAuth();
 
   const handleLogout = () => {
+    logout();
     navigate('/login');
   };
 
@@ -32,9 +35,9 @@ export const Sidebar = () => {
     }}>
       {/* Brand */}
       <div style={{ padding: '0 12px', marginBottom: '40px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <div style={{ 
-          background: 'linear-gradient(135deg, var(--accent-blue), #818cf8)', 
-          padding: '8px', 
+        <div style={{
+          background: 'linear-gradient(135deg, var(--accent-blue), #818cf8)',
+          padding: '8px',
           borderRadius: '10px',
           display: 'flex',
           alignItems: 'center',
@@ -47,7 +50,7 @@ export const Sidebar = () => {
           Lumina<span style={{ color: 'var(--accent-blue)' }}>Health</span>
         </h2>
       </div>
-      
+
       {/* Nav Links */}
       <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {navItems.map((item) => (
@@ -74,9 +77,9 @@ export const Sidebar = () => {
             {({ isActive }) => (
               <>
                 {isActive && (
-                  <div style={{ 
-                    position: 'absolute', left: 0, top: '20%', bottom: '20%', width: '3px', 
-                    backgroundColor: 'var(--accent-blue)', borderRadius: '0 4px 4px 0' 
+                  <div style={{
+                    position: 'absolute', left: 0, top: '20%', bottom: '20%', width: '3px',
+                    backgroundColor: 'var(--accent-blue)', borderRadius: '0 4px 4px 0'
                   }} />
                 )}
                 <span style={{ color: isActive ? 'var(--accent-blue)' : 'inherit', transition: 'color 0.2s' }}>
@@ -91,7 +94,7 @@ export const Sidebar = () => {
 
       {/* Logout */}
       <div style={{ marginTop: 'auto', paddingTop: '24px', borderTop: '1px solid var(--border-color)' }}>
-        <button 
+        <button
           onClick={handleLogout}
           style={{
             display: 'flex',
